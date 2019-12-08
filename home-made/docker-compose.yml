@@ -1,0 +1,41 @@
+version: '3.2'
+services:
+  qgisserver:
+    image: mopnaej/qgisserver:0.2
+    ports:
+      - "82:80"
+    volumes:
+    - ./qgis-web:/home/qgis/projects
+    networks:
+      net1:
+    restart: unless-stopped
+
+  lizmap:
+    image: mopnaej/lizmap-client:0.2
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+     - ./qgis-web:/home/qgis/projects
+     - var:/var/www/websig/lizmap/var
+    depends_on:
+      - qgisserver
+      - redisD
+    networks:
+      net1:
+
+  redisD:
+    image: redis:alpine
+    restart: always
+    volumes:
+      - redis:/data
+    networks:
+      net1:
+
+volumes:
+  redis:
+  var:
+
+networks:
+  net1:
+    driver: bridge

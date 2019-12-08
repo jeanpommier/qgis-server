@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/git-commands/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/qwc-services/qwc-docker.git
+	branch = master
+	commit = e9487a729b4679cd625567b698ddce27e463143d
+	parent = 75aed323e8d8fbb9fe4a71ac53db60a9fc665585
+	method = merge
+	cmdver = 0.4.0

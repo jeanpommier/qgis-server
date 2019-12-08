@@ -1,0 +1,172 @@
+version: '2.1'
+services:
+  qwc-postgis:
+    build:
+      context: ./postgis
+      args:
+        - ALEMBIC_VERSION=e9c31b610e0a
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+    ports:
+     - "127.0.0.1:5439:5432"
+
+  qwc-qgis-server:
+    build:
+      context: ./qgis-server
+      args:
+        - URL_PREFIX=/ows
+    ports:
+     - "127.0.0.1:8001:80"
+    volumes:
+      - ./volumes/qgs-resources:/data:ro
+      - ./volumes/geodata:/geodata:ro
+
+  qwc-config-service:
+    build:
+      context: ./wsgi-service
+      args:
+        - SERVICE=qwc-config-service
+    environment:
+      - QGIS_SERVER_URL=http://qwc-qgis-server/ows/
+      - QGIS_RESOURCES_PATH=/data/
+      - QWC2_PATH=/qwc2/
+      - QWC2_THEMES_CONFIG=/qwc2/themesConfig.json
+      #- DEFAULT_ALLOW=True
+      #- FLASK_DEBUG=1
+    ports:
+      - "127.0.0.1:5010:9090"
+    volumes:
+      - ./volumes/qgs-resources:/data:ro
+      - ./volumes/qwc2:/qwc2
+    depends_on:
+      qwc-postgis:
+        condition: service_healthy
+
+  qwc-ogc-service:
+    build:
+      context: ./wsgi-service
+      args:
+        - SERVICE=qwc-ogc-service
+        - SERVICE_MOUNTPOINT=/ows
+    environment:
+      - CONFIG_SERVICE_URL=http://qwc-config-service:9090/
+      - QGIS_SERVER_URL=http://qwc-qgis-server/ows/
+      #- CONFIG_CHECK_INTERVAL=60
+      #- DEFAULT_CONFIG_CACHE_DURATION=86400
+    ports:
+      - "127.0.0.1:5013:9090"
+    depends_on:
+      - qwc-qgis-server
+      - qwc-config-service
+
+  qwc-data-service:
+    build:
+      context: ./wsgi-service
+      args:
+        - SERVICE=qwc-data-service
+        - SERVICE_MOUNTPOINT=/api/v1/data
+        - DB_USER=qwc_service_write
+        - DB_PASSWORD=qwc_service_write
+    environment:
+      - CONFIG_SERVICE_URL=http://qwc-config-service:9090/
+      #- CONFIG_CHECK_INTERVAL=60
+      #- DEFAULT_CONFIG_CACHE_DURATION=86400
+    ports:
+      - "127.0.0.1:5012:9090"
+    depends_on:
+      - qwc-config-service
+
+  qwc-map-viewer:
+    build:
+      context: ./wsgi-service
+      args:
+        - SERVICE=qwc-map-viewer
+    environment:
+      - CONFIG_SERVICE_URL=http://qwc-config-service:9090/
+      - QWC2_PATH=/qwc2/
+      - QWC2_CONFIG=/qwc2/config.json
+      - OGC_SERVICE_URL=/ows/
+      - DATA_SERVICE_URL=/api/v1/data/
+      #- AUTH_SERVICE_URL=/auth/
+      #- 'AUTH_SERVICES_CONFIG={"_intern_": "/auth/"}'
+      # NOTE: escape literal '$' with '$$' to avoid variable substitution from docker-compose
+      #- 'ORIGIN_CONFIG={"host": {"_intern_": "^127.0.0.1(:\\d+)?$$"}}'
+      #- CONFIG_CHECK_INTERVAL=60
+      #- DEFAULT_CONFIG_CACHE_DURATION=86400
+    ports:
+      - "127.0.0.1:5030:9090"
+    volumes:
+      - ./volumes/qwc2:/qwc2:ro
+    depends_on:
+      - qwc-config-service
+      - qwc-ogc-service
+      - qwc-data-service
+
+  qwc-admin-gui:
+    build:
+      context: ./wsgi-service
+      args:
+        - SERVICE=qwc-admin-gui
+        - SERVICE_MOUNTPOINT=/qwc_admin
+    environment:
+      - 'USER_INFO_FIELDS=[{"title": "Surname", "name": "surname", "type": "text", "required": true}, {"title": "First name", "name": "first_name", "type": "text", "required": true}, {"title": "Street", "name": "street", "type": "text"}, {"title": "ZIP", "name": "zip", "type": "text"}, {"title": "City", "name": "city", "type": "text"}
+]'
+      #- TOTP_ENABLED=False
+      - GROUP_REGISTRATION_ENABLED=True
+      - DEFAULT_LOCALE=en
+      - MAIL_SUPPRESS_SEND=True
+      - MAIL_DEFAULT_SENDER=from@example.com
+    ports:
+      - "127.0.0.1:5031:9090"
+    depends_on:
+      qwc-postgis:
+        condition: service_healthy
+
+  qwc-registration-gui:
+    build:
+      context: ./wsgi-service
+      args:
+        - SERVICE=qwc-registration-gui
+        - SERVICE_MOUNTPOINT=/registration
+    environment:
+      - DEFAULT_LOCALE=en
+      - ADMIN_RECIPIENTS=admin@example.com
+      - MAIL_SUPPRESS_SEND=True
+      - MAIL_DEFAULT_SENDER=from@example.com
+    ports:
+      - "127.0.0.1:5032:9090"
+    depends_on:
+      qwc-postgis:
+        condition: service_healthy
+
+  qwc-auth-service:
+    build:
+      context: ./wsgi-service
+      args:
+        - SERVICE=qwc-db-auth
+        - SERVICE_MOUNTPOINT=/auth
+    environment:
+      #- TOTP_ENABLED=False
+      #- TOTP_ISSUER_NAME=QWC Services
+      - MAIL_SUPPRESS_SEND=True
+      - MAIL_DEFAULT_SENDER=from@example.com
+    ports:
+      - "127.0.0.1:5017:9090"
+    depends_on:
+      qwc-postgis:
+        condition: service_healthy
+
+  qwc-api-gateway:
+    image: nginx
+    ports:
+      - "8088:80"
+    volumes:
+      - ./api-gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - qwc-ogc-service
+      - qwc-data-service
+      - qwc-map-viewer
+      - qwc-admin-gui
+      - qwc-registration-gui
+      - qwc-auth-service
