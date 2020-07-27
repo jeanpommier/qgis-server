@@ -10,4 +10,5 @@ volumes:
 	/bin/bash ./scripts/volumes-init.sh
 
 clean:
+	docker-compose down -v
 	rm -rf volumes/
